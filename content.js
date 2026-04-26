@@ -12,6 +12,7 @@
     PENDING_SCROLL_DELAY_MS: 180,
     SCROLL_SETTLE_ATTEMPTS: 5,
     SCROLL_TARGET_TOLERANCE_PX: 24,
+    TOOLTIP_SUPPRESS_MS: 360,
   };
 
   let root = null;
@@ -24,6 +25,9 @@
   let maxObservedQuestionNumber = 0;
   let lastConversationKey = "";
   let scrollJobId = 0;
+  let tooltipSuppressTimer = 0;
+  let turnContentCache = new Map();
+  let renderedTurnsKey = "";
 
   function init() {
     ensureRoot();
@@ -70,6 +74,8 @@
       lastConversationKey = conversationKey;
       maxObservedQuestionNumber = 0;
       activeTurnId = "";
+      turnContentCache = new Map();
+      renderedTurnsKey = "__gpth_unrendered__";
     }
 
     const turnNodes = Array.from(document.querySelectorAll(CONFIG.TURN_SELECTOR))
@@ -121,12 +127,21 @@
   function toKnownTurnItem(turn, turnNumber, questionNumber) {
     const roleNode = turn.querySelector(CONFIG.ROLE_SELECTOR);
     const role = roleNode ? roleNode.getAttribute("data-message-author-role") : "";
-    const textSource = roleNode || turn;
-    const rawText = getReadableText(textSource);
     const id = ensureTurnId(turn, questionNumber);
+    const cached = turnContentCache.get(questionNumber);
+    const rawText = cached
+      ? cached.rawText
+      : getReadableText(roleNode || turn);
     const label = rawText
       ? truncate(rawText, CONFIG.MAX_TITLE_LENGTH)
       : `提问 ${questionNumber}`;
+
+    if (!cached && rawText) {
+      turnContentCache.set(questionNumber, {
+        rawText,
+        label
+      });
+    }
 
     return {
       id,
@@ -195,6 +210,13 @@
   }
 
   function renderTurns(items) {
+    const nextRenderedTurnsKey = getRenderedTurnsKey(items);
+    if (nextRenderedTurnsKey === renderedTurnsKey) {
+      root.hidden = !items.length;
+      return;
+    }
+
+    renderedTurnsKey = nextRenderedTurnsKey;
     list.textContent = "";
     root.hidden = !items.length;
 
@@ -216,7 +238,7 @@
       button.setAttribute("aria-label", item.hasTooltip
         ? `跳转到用户提问 ${item.index}: ${item.label}`
         : `跳转到用户提问 ${item.index}`);
-      button.addEventListener("click", () => scrollToTurn(item));
+      button.addEventListener("click", (event) => scrollToTurn(item, event.currentTarget));
 
       const mark = document.createElement("span");
       mark.className = "gpth-mark";
@@ -250,14 +272,29 @@
     setActiveTurn(activeExists ? activeTurnId : fallbackActiveId);
   }
 
-  function scrollToTurn(item) {
+  function getRenderedTurnsKey(items) {
+    return items
+      .map((item) => [
+        item.id,
+        item.index,
+        item.known ? "1" : "0",
+        item.hasTooltip ? "1" : "0",
+        item.label
+      ].join(":"))
+      .join("|");
+  }
+
+  function scrollToTurn(item, trigger) {
     const jobId = ++scrollJobId;
+    if (trigger) trigger.blur();
+    suppressTooltips();
     setActiveTurn(item.id);
     scrollToQuestionByIndex(item.index, jobId, CONFIG.PENDING_SCROLL_ATTEMPTS);
   }
 
   function scrollToQuestionByIndex(questionNumber, jobId, attemptsLeft) {
     if (jobId !== scrollJobId || attemptsLeft <= 0) return;
+    suppressTooltips();
 
     const target = findLoadedQuestion(questionNumber);
     if (target) {
@@ -343,6 +380,7 @@
 
   function alignTarget(target, jobId, attemptsLeft) {
     if (jobId !== scrollJobId || attemptsLeft <= 0) return;
+    suppressTooltips();
 
     const questionNumber = getQuestionNumberFromTurnNumber(getTurnNumber(target));
     if (!target.isConnected) {
@@ -369,6 +407,15 @@
     window.setTimeout(() => {
       alignTarget(target, jobId, attemptsLeft - 1);
     }, 120);
+  }
+
+  function suppressTooltips() {
+    if (!root) return;
+    root.classList.add("gpth-suppress-tooltip");
+    window.clearTimeout(tooltipSuppressTimer);
+    tooltipSuppressTimer = window.setTimeout(() => {
+      if (root) root.classList.remove("gpth-suppress-tooltip");
+    }, CONFIG.TOOLTIP_SUPPRESS_MS);
   }
 
   function getScrollTop(scrollRoot) {
