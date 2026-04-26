@@ -1,8 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "GPT Helper Conversation TOC",
+  "name": "GPT Helper",
   "description": "Adds a right-side in-page navigation for ChatGPT conversation turns.",
   "version": "0.1.0",
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
   "content_scripts": [
     {
       "matches": [
