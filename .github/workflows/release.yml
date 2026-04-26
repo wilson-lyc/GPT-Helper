@@ -1,0 +1,53 @@
+name: Release package
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package extension and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build zip package
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          package_name="gpt-helper-${short_sha}.zip"
+
+          zip -r "$package_name" \
+            manifest.json \
+            content.js \
+            content.css \
+            icon.png \
+            README.md
+
+          echo "PACKAGE_NAME=$package_name" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_name="main-${SHORT_SHA}"
+          release_title="GPT Helper ${SHORT_SHA}"
+          release_notes="Automated package for main commit ${GITHUB_SHA}."
+
+          if gh release view "$tag_name" >/dev/null 2>&1; then
+            gh release upload "$tag_name" "$PACKAGE_NAME" --clobber
+          else
+            gh release create "$tag_name" "$PACKAGE_NAME" \
+              --target "$GITHUB_SHA" \
+              --title "$release_title" \
+              --notes "$release_notes"
+          fi
